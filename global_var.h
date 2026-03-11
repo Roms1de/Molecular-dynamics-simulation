@@ -1,4 +1,7 @@
+#pragma once
 #include <stdio.h>
+
+
 
 // координаты (массивы)
 double *coordx =NULL;
