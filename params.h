@@ -3,7 +3,7 @@
 #pragma once
 
 //Число шагов
-const int NSTEPS = 10;
+const int NSTEPS = 4;
 const int LASTSTEP = NSTEPS - 1;
 
 //число элементарных ячеек (кристаллов) по осям координат

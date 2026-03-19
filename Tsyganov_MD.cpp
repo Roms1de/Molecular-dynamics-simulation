@@ -1,14 +1,18 @@
 #include <iostream>
 #include <fstream>
 #include <iomanip>
+#include <cmath>
 
 #include "params.h"
 #include "constans.h"
 #include "start_cond.h"
 #include "global_var.h"
 
-
 using namespace std;
+
+// Добавим глобальные переменные для записи
+double rx_ij, ry_ij, rz_ij, r_ij;
+double ex_ij, ey_ij, ez_ij;
 
 // Выделение памяти
 void memoryAllocation() {
@@ -25,8 +29,9 @@ void memoryAllocation() {
     Fz = (double*) malloc(NUMBERPARTICLES * sizeof(double));
 }
 
-// очищаем память и задаем нул, чтобы не было крашей
+// очищаем память
 void memoryFree() {
+
     free(coordx); coordx = NULL;
     free(coordy); coordy = NULL;
     free(coordz); coordz = NULL;
@@ -40,116 +45,122 @@ void memoryFree() {
     free(Fz); Fz = NULL;
 }
 
+void calculate_potential_U_F() {
 
-// запись в файл
-void writeToFile() {
+    for (int k = 0; k < NUMBERPARTICLES; ++k) {
+        Fx[k] = 0.0;
+        Fy[k] = 0.0;
+        Fz[k] = 0.0;
+    }
 
+    for (int i = 0; i < NUMBERPARTICLES; ++i) {
+        for (int j = i + 1; j < NUMBERPARTICLES; ++j) {
 
-    int currentStep = 0;
+            rx_ij = coordx[i] - coordx[j];
+            ry_ij = coordy[i] - coordy[j];
+            rz_ij = coordz[i] - coordz[j];
 
-    double rx1, ry1, rz1, rx2, ry2, rz2;
-    double rx12, ry12, rz12, rx21, ry21, rz21, r12_abs, r21_abs;
-    double ex12, ey12, ez12, ex21, ey21, ez21;
+            r_ij = sqrt(rx_ij * rx_ij + ry_ij * ry_ij + rz_ij * rz_ij);
 
-    double vx1, vy1, vz1, vx2, vy2, vz2;
+            if (r_ij == 0.0) continue;
 
-    double Fx12, Fy12, Fz12, Fx21, Fy21, Fz21, Fs;
-    double U12, sr_abs, sr_abs2, sr_abs6;
+            ex_ij = rx_ij / r_ij;
+            ey_ij = ry_ij / r_ij;
+            ez_ij = rz_ij / r_ij;
+
+            double sr = SIGMA / r_ij;
+            double sr2 = sr * sr;
+            double sr6 = sr2 * sr2 * sr2;
+            
     
+            if (r_ij <= RCUT) {
+                U = 4.0 * EPS * (sr6 * sr6 - sr6) - UCUT;
+                F = 24.0 * EPS / r_ij * (2.0 * sr6 * sr6 - sr6);
+            } else {
+                U = 0.0;
+                F = 0.0;
+            }
+            
 
-    // Координаты первой частицы 
-    rx1 = coordx[0];
-    ry1 = coordy[0];
-    rz1 = coordz[0];
+            // силы (3 закон Ньютона)
+            Fx[i] += F * ex_ij;
+            Fy[i] += F * ey_ij;
+            Fz[i] += F * ez_ij;
 
-    // Координаты второй частицы
-    rx2 = coordx[1];
-    ry2 = coordy[1];
-    rz2 = coordz[1];
+            Fx[j] -= F * ex_ij;
+            Fy[j] -= F * ey_ij;
+            Fz[j] -= F * ez_ij;
+        }
+    }
+}
 
-    // Скорости первой частицы
-    vx1 = vx[0];
-    vy1 = vy[0];
-    vz1 = vz[0];
+// Velocity Verlet (половинный шаг скоростей)
+void velocity_Verlet_half() {
+    for (int i = 0; i < NUMBERPARTICLES; ++i) {
+        // v(t + dt/2) = v(t) + F(t) * dt / (2m)
+        vx[i] += 0.5 * STEP * Fx[i] / MASS;
+        vy[i] += 0.5 * STEP * Fy[i] / MASS;
+        vz[i] += 0.5 * STEP * Fz[i] / MASS;
+    }
+}
 
-    // Скорости второй частицы
-    vx2 = vx[1];
-    vy2 = vy[1];
-    vz2 = vz[1];
+// координаты
+void coord_Verlet() {
+    for (int i = 0; i < NUMBERPARTICLES; ++i) {
+        // r(t + dt) = r(t) + v(t + dt/2) * dt
+        coordx[i] += STEP * vx[i];
+        coordy[i] += STEP * vy[i];
+        coordz[i] += STEP * vz[i];
+    }
+}
 
-    // Радиус векторы
-    rx12 = rx1 - rx2;
-    ry12 = ry1 - ry2;
-    rz12 = rz1 - rz2;
+// запись
+void writeToFile(int step) {
 
-    rx21 = rx2 - rx1;
-    ry21 = ry2 - ry1;
-    rz21 = rz2 - rz1;
+    FILE *file = fopen("Tsyganov_MD_3.txt", "a");
 
-    // Длина вектора r12
-    r12_abs = sqrt(rx12 * rx12 + ry12 * ry12 + rz12 * rz12);
+    fprintf(file, "Step = %d\n", step);
 
-    // Длина вектора r21
-    r21_abs = sqrt(rx21 * rx21 + ry21 * ry21 + rz21 * rz21);
+    fprintf(file, "r1 = (rx1; ry1; rz1) = (%0.8f; %0.8f; %0.8f)\n", coordx[0], coordy[0], coordz[0]);
+    fprintf(file, "r2 = (rx2; ry2; rz2) = (%0.8f; %0.8f; %0.8f)\n", coordx[1], coordy[1], coordz[1]);
 
-    //вычисляем единичный вектор 
-    ex12 = rx12 / r12_abs;
-    ey12 = ry12 / r12_abs;
-    ez12 = rz12 / r12_abs;
+    fprintf(file, "r12 = (rx12; ry12; rz12) = (%0.8f; %0.8f; %0.8f)\n", rx_ij, ry_ij, rz_ij);
+    fprintf(file, "r12_abs = %0.8f\n", r_ij);
 
-    ex21 = rx21 / r21_abs;
-    ey21 = ry21 / r21_abs;
-    ez21 = rz21 / r21_abs;
+    fprintf(file, "(rx12; ry12; rz12) / r12_abs = (%0.8f; %0.8f; %0.8f)\n", ex_ij, ey_ij, ez_ij);
 
+    fprintf(file, "U12 = %0.8f\n", U);
+    fprintf(file, "F12 = %0.8f\n", F);
+    fprintf(file, "F1 = (Fx1; Fy1; Fz1) = (%0.8f; %0.8f; %0.8f)\n", Fx[0], Fy[0], Fz[0]);
 
-    // Вспомогательные переменные
-    sr_abs = SIGMA / r12_abs;
-    sr_abs2 = sr_abs * sr_abs;
-    sr_abs6 = sr_abs2 * sr_abs2 * sr_abs2;
+    fprintf(file, "v1 = (vx1; vy1; vz1) = (%0.8f; %0.8f; %0.8f)\n", vx[0], vy[0], vz[0]);
+    fprintf(file, "v2 = (vx2; vy2; vz2) = (%0.8f; %0.8f; %0.8f)\n", vx[1], vy[1], vz[1]);
 
-    // Потенциал взаимодействия
-    U12 = 4.0 * EPS * (sr_abs6 * sr_abs6 - sr_abs6);
+    fprintf(file, "\n");
 
-    // Сила взаимодействия 
-    Fs = 24.0 * EPS / r12_abs * (2.0 * sr_abs6 * sr_abs6 - sr_abs6);
-
-    //проекции силы, действующей на первую частицу
-    Fx12 = Fs * ex12;
-    Fy12 = Fs * ey12;
-    Fz12 = Fs * ez12;
-
-    //сила действующая на вторую частицу
-    Fx21 = -Fx12;
-    Fy21 = -Fy12;
-    Fz21 = -Fz12;
-
-
-
-    // Создаем новый файл или перезаписываем
-    FILE *file = fopen("Tsyganov_MD_3.txt", "w");
-
-    fprintf(file, "Step = %d\n", currentStep);
-    fprintf(file, "r1 = (rx1; ry1; rz1) = (%0.8f; %0.8f; %0.8f)\n", rx1, ry1, rz1);
-    fprintf(file, "r2 = (rx2; ry2; rz2) = (%0.8f; %0.8f; %0.8f)\n", rx2, ry2, rz2);
-    fprintf(file, "r12 = (rx12; ry12; rz12) = (%0.8f; %0.8f; %0.8f)\n", rx12, ry12, rz12);
-    fprintf(file, "r12_abs = %0.8f\n", r12_abs);
-    fprintf(file, "(rx12; ry12; rz12) / r12_abs = (%0.8f; %0.8f; %0.8f)\n", ex12, ey12, ez12);
-    fprintf(file, "(rx21; ry21; rz21) / r21_abs = (%0.8f; %0.8f; %0.8f)\n", ex21, ey21, ez21);
-    fprintf(file, "v1 = (vx1; vy1, vz1) = (%0.8f; %0.8f; %0.8f)\n", vx1, vy1, vz1);
-    fprintf(file, "v2 = (vx2; vy2, vz2) = (%0.8f; %0.8f; %0.8f)\n", vx2, vy2, vz2);
-    fprintf(file, "U12 = %0.8f\n", U12);
-    fprintf(file, "F = %0.8f\n", Fs);
-    fprintf(file, "F1 = (Fx1; Fy1; Fz1) = (%0.8f; %0.8f; %0.8f)\n", Fx12, Fy12, Fz12);
-    fprintf(file, "F2 = (Fx2; Fy2; Fz2) = (%0.8f; %0.8f; %0.8f)\n", Fx21, Fy21, Fz21);
-
-    
     fclose(file);
 }
 
-// Основная функция-алгоритм 
+// алгоритм
 void algorithm_MD_problem() {
     start_cond_two_particles();
-    writeToFile();
+
+    calculate_potential_U_F();
+
+    writeToFile(0);
+
+    for (int step = 1; step <= LASTSTEP; step++){
+
+        velocity_Verlet_half();
+
+        coord_Verlet();
+        
+        calculate_potential_U_F();
+
+        velocity_Verlet_half();
+
+        writeToFile(step);
+    }
 }
 
 int main() {
@@ -162,4 +173,3 @@ int main() {
 
     return 0;
 }
-
