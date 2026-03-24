@@ -11,7 +11,7 @@
 using namespace std;
 
 // Добавим глобальные переменные для записи
-double rx_ij, ry_ij, rz_ij, r_ij;
+double rx_ij, ry_ij, rz_ij, r_ij, r_ij2;
 double ex_ij, ey_ij, ez_ij;
 
 // Выделение памяти
@@ -45,8 +45,10 @@ void memoryFree() {
     free(Fz); Fz = NULL;
 }
 
+
 void calculate_potential_U_F() {
 
+    U = 0.0;
     for (int k = 0; k < NUMBERPARTICLES; ++k) {
         Fx[k] = 0.0;
         Fy[k] = 0.0;
@@ -59,37 +61,39 @@ void calculate_potential_U_F() {
             rx_ij = coordx[i] - coordx[j];
             ry_ij = coordy[i] - coordy[j];
             rz_ij = coordz[i] - coordz[j];
-
-            r_ij = sqrt(rx_ij * rx_ij + ry_ij * ry_ij + rz_ij * rz_ij);
-
-            if (r_ij == 0.0) continue;
-
-            ex_ij = rx_ij / r_ij;
-            ey_ij = ry_ij / r_ij;
-            ez_ij = rz_ij / r_ij;
-
-            double sr = SIGMA / r_ij;
-            double sr2 = sr * sr;
-            double sr6 = sr2 * sr2 * sr2;
             
-    
-            if (r_ij <= RCUT) {
+            // находим квадрат расстояния
+            r_ij2 = rx_ij * rx_ij + ry_ij * ry_ij + rz_ij * rz_ij;
+
+            
+            if (r_ij2 <= RCUT2) { 
+
+                
+                // растояние между частицами
+                r_ij = sqrt(r_ij2);
+
+                // вводим доп переменные
+                double sr = SIGMA / r_ij;
+                double sr2 = sr * sr;
+                double sr6 = sr2 * sr2 * sr2;
+
+                // вспомогательные единичные векторы
+                ex_ij = rx_ij / r_ij;
+                ey_ij = ry_ij / r_ij;
+                ez_ij = rz_ij / r_ij;
+                
                 U = 4.0 * EPS * (sr6 * sr6 - sr6) - UCUT;
                 F = 24.0 * EPS / r_ij * (2.0 * sr6 * sr6 - sr6);
-            } else {
-                U = 0.0;
-                F = 0.0;
-            }
-            
 
-            // силы (3 закон Ньютона)
-            Fx[i] += F * ex_ij;
-            Fy[i] += F * ey_ij;
-            Fz[i] += F * ez_ij;
+                // силы (3 закон Ньютона)
+                Fx[i] += F * ex_ij;
+                Fy[i] += F * ey_ij;
+                Fz[i] += F * ez_ij;
 
-            Fx[j] -= F * ex_ij;
-            Fy[j] -= F * ey_ij;
-            Fz[j] -= F * ez_ij;
+                Fx[j] -= F * ex_ij;
+                Fy[j] -= F * ey_ij;
+                Fz[j] -= F * ez_ij;
+            } 
         }
     }
 }
@@ -104,7 +108,7 @@ void velocity_Verlet_half() {
     }
 }
 
-// координаты
+// вычисление координат
 void coord_Verlet() {
     for (int i = 0; i < NUMBERPARTICLES; ++i) {
         // r(t + dt) = r(t) + v(t + dt/2) * dt
@@ -114,7 +118,7 @@ void coord_Verlet() {
     }
 }
 
-// запись
+// запись в файл
 void writeToFile(int step) {
 
     FILE *file = fopen("Tsyganov_MD_3.txt", "a");
@@ -141,7 +145,7 @@ void writeToFile(int step) {
     fclose(file);
 }
 
-// алгоритм
+// основной алгоритм 
 void algorithm_MD_problem() {
     start_cond_two_particles();
 
@@ -165,10 +169,13 @@ void algorithm_MD_problem() {
 
 int main() {
     
+    // веделяем память
     memoryAllocation();
 
+    // запускаем алгоритм
     algorithm_MD_problem();
 
+    // очищаем память
     memoryFree();
 
     return 0;
