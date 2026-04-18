@@ -49,6 +49,7 @@ void memoryFree() {
 void calculate_potential_U_F() {
 
     U = 0.0;
+    F = 0.0;
     for (int k = 0; k < NUMBERPARTICLES; ++k) {
         Fx[k] = 0.0;
         Fy[k] = 0.0;
@@ -61,6 +62,16 @@ void calculate_potential_U_F() {
             rx_ij = coordx[i] - coordx[j];
             ry_ij = coordy[i] - coordy[j];
             rz_ij = coordz[i] - coordz[j];
+
+            // виртуальные частицы
+            if (rx_ij >  LX / 2.0) rx_ij -= LX;
+            if (rx_ij < -LX / 2.0) rx_ij += LX;
+
+            if (ry_ij >  LY / 2.0) ry_ij -= LY;
+            if (ry_ij < -LY / 2.0) ry_ij += LY;
+
+            if (rz_ij >  LZ / 2.0) rz_ij -= LZ;
+            if (rz_ij < -LZ / 2.0) rz_ij += LZ;
             
             // находим квадрат расстояния
             r_ij2 = rx_ij * rx_ij + ry_ij * ry_ij + rz_ij * rz_ij;
@@ -81,8 +92,8 @@ void calculate_potential_U_F() {
                 ex_ij = rx_ij / r_ij;
                 ey_ij = ry_ij / r_ij;
                 ez_ij = rz_ij / r_ij;
-                
-                U = 4.0 * EPS * (sr6 * sr6 - sr6) - UCUT;
+
+                U += 4.0 * EPS * (sr6 * sr6 - sr6) - UCUT;
                 F = 24.0 * EPS / r_ij * (2.0 * sr6 * sr6 - sr6);
 
                 // силы (3 закон Ньютона)
@@ -108,6 +119,22 @@ void velocity_Verlet_half() {
     }
 }
 
+// ПГУ, периодические граничные условия
+void PBC() {
+    for (int i = 0; i < NUMBERPARTICLES; ++i) {
+
+        if (coordx[i] >= LX) coordx[i] -= LX;
+        if (coordx[i] < 0.0) coordx[i] += LX;
+
+        if (coordy[i] >= LY) coordy[i] -= LY;
+        if (coordy[i] < 0.0) coordy[i] += LY;
+
+        if (coordz[i] >= LZ) coordz[i] -= LZ;
+        if (coordz[i] < 0.0) coordz[i] += LZ;
+    }
+}
+
+
 // вычисление координат
 void coord_Verlet() {
     for (int i = 0; i < NUMBERPARTICLES; ++i) {
@@ -121,7 +148,9 @@ void coord_Verlet() {
 // запись в файл
 void writeToFile(int step) {
 
-    FILE *file = fopen("Tsyganov_MD_3.txt", "a");
+    FILE *file = fopen("Tsyganov_MD_8.txt", "a");
+
+    
 
     fprintf(file, "Step = %d\n", step);
 
@@ -141,23 +170,30 @@ void writeToFile(int step) {
     fprintf(file, "v2 = (vx2; vy2; vz2) = (%0.8f; %0.8f; %0.8f)\n", vx[1], vy[1], vz[1]);
 
     fprintf(file, "\n");
-
+    
     fclose(file);
 }
 
 // основной алгоритм 
 void algorithm_MD_problem() {
+
+    // задаем начальные условия для частиц
     start_cond_two_particles();
 
+    // считаем нулевой шаг
     calculate_potential_U_F();
 
     writeToFile(0);
 
+    
     for (int step = 1; step <= LASTSTEP; step++){
 
         velocity_Verlet_half();
 
         coord_Verlet();
+
+        // ПГУ, смещение координат при необходимости
+        PBC();
         
         calculate_potential_U_F();
 
