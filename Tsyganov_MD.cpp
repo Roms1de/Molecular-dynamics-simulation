@@ -46,10 +46,14 @@ void memoryFree() {
 }
 
 
-void calculate_potential_U_F() {
+void calculate_potential_U_F_P2() {
 
-    U = 0.0;
+    double F_temp;
+
     F = 0.0;
+    U_full = 0.0;
+    P2 = 0.0;
+
     for (int k = 0; k < NUMBERPARTICLES; ++k) {
         Fx[k] = 0.0;
         Fy[k] = 0.0;
@@ -93,20 +97,66 @@ void calculate_potential_U_F() {
                 ey_ij = ry_ij / r_ij;
                 ez_ij = rz_ij / r_ij;
 
-                U += 4.0 * EPS * (sr6 * sr6 - sr6) - UCUT;
-                F = 24.0 * EPS / r_ij * (2.0 * sr6 * sr6 - sr6);
+                U = 4.0 * EPS * (sr6 * sr6 - sr6) - UCUT; 
+                U_full += U;
+
+                F_temp = 24.0 * EPS / r_ij * (2.0 * sr6 * sr6 - sr6);
+                F += F_temp;
 
                 // силы (3 закон Ньютона)
-                Fx[i] += F * ex_ij;
-                Fy[i] += F * ey_ij;
-                Fz[i] += F * ez_ij;
+                Fx[i] += F_temp * ex_ij;
+                Fy[i] += F_temp * ey_ij;
+                Fz[i] += F_temp * ez_ij;
 
-                Fx[j] -= F * ex_ij;
-                Fy[j] -= F * ey_ij;
-                Fz[j] -= F * ez_ij;
+                Fx[j] -= F_temp * ex_ij;
+                Fy[j] -= F_temp * ey_ij;
+                Fz[j] -= F_temp * ez_ij;
+
+                P2 += (rx_ij * (F_temp * ex_ij) +
+                        ry_ij * (F_temp * ey_ij) +
+                        rz_ij * (F_temp * ez_ij));
             } 
         }
     }
+}
+
+void macroparams() {
+    Ekin = 0.0;
+    Eterm = 0.0;
+    v_mx = 0.0;
+    v_my = 0.0;
+    v_mz = 0.0;
+    P1 = 0.0;
+
+    // центр масс + кинетическая энергия
+    for (int i = 0; i < NUMBERPARTICLES; ++i) {
+        v_mx += vx[i];
+        v_my += vy[i];
+        v_mz += vz[i];
+
+        Ekin += 0.5 * MASS * (vx[i]*vx[i] + vy[i]*vy[i] + vz[i]*vz[i]);
+    }
+
+    v_mx /= NUMBERPARTICLES;
+    v_my /= NUMBERPARTICLES;
+    v_mz /= NUMBERPARTICLES;
+
+    // тепловая часть
+    for (int i = 0; i < NUMBERPARTICLES; ++i) {
+        double dvx = vx[i] - v_mx;
+        double dvy = vy[i] - v_my;
+        double dvz = vz[i] - v_mz;
+
+        Eterm += 0.5 * MASS * (dvx*dvx + dvy*dvy + dvz*dvz);
+        P1 += MASS * (dvx*dvx + dvy*dvy + dvz*dvz);
+    }
+
+    Eint = Eterm + U_full;
+    E = Ekin + U_full;
+
+    T = 2.0 * Eterm / (3.0 * NUMBERPARTICLES * K_B);
+
+    P = (P1 + P2) / (3.0 * VOLUME);
 }
 
 // Velocity Verlet (половинный шаг скоростей)
@@ -145,10 +195,42 @@ void coord_Verlet() {
     }
 }
 
+void writeMacroToFile(int step) {
+    // Проверяем, что step находится в нужных диапазонах
+    if (!((step >= 0 && step <= 99) || (step >= 1900 && step <= 1999))) {
+        return; // Выходим из функции, если условие не выполняется
+    }
+    
+    FILE *file = fopen("Tsyganov_MD_10.txt", "a");
+    
+    // Проверка, что файл успешно открыт
+    if (file == NULL) {
+        return;
+    }
+
+    fprintf(file, "Step = %d\n", step);
+    fprintf(file, "Ekin = %.8f\n", Ekin);
+    fprintf(file, "Eterm = %.8f\n", Eterm);
+    fprintf(file, "Epot = %.8f\n", U_full);
+    fprintf(file, "Eint = %.8f\n", Eint);
+    fprintf(file, "E = %.8f\n", E);
+    fprintf(file, "T = %.8f\n", T);
+    fprintf(file, "P = %.8f\n\n", P);
+
+    fclose(file); 
+}
+
 // запись в файл
 void writeToFile(int step) {
+    double rx_raw = coordx[0] - coordx[1];
+    double ry_raw = coordy[0] - coordy[1];
+    double rz_raw = coordz[0] - coordz[1];
 
-    FILE *file = fopen("Tsyganov_MD_8.txt", "a");
+    double r12_abs_raw = sqrt(rx_raw*rx_raw + ry_raw*ry_raw + rz_raw*rz_raw);
+
+    FILE *file = fopen("Tsyganov_MD_coords.txt", "a");
+
+    
 
     
 
@@ -156,13 +238,15 @@ void writeToFile(int step) {
 
     fprintf(file, "r1 = (rx1; ry1; rz1) = (%0.8f; %0.8f; %0.8f)\n", coordx[0], coordy[0], coordz[0]);
     fprintf(file, "r2 = (rx2; ry2; rz2) = (%0.8f; %0.8f; %0.8f)\n", coordx[1], coordy[1], coordz[1]);
+    fprintf(file, "r3 = (rx3; ry3; rz3) = (%0.8f; %0.8f; %0.8f)\n", coordx[2], coordy[2], coordz[2]);
+    fprintf(file, "r4 = (rx4; ry4; rz4) = (%0.8f; %0.8f; %0.8f)\n", coordx[3], coordy[3], coordz[3]);
 
     fprintf(file, "r12 = (rx12; ry12; rz12) = (%0.8f; %0.8f; %0.8f)\n", rx_ij, ry_ij, rz_ij);
-    fprintf(file, "r12_abs = %0.8f\n", r_ij);
+    fprintf(file, "r12_abs = %0.8f\n", r12_abs_raw);
 
     fprintf(file, "(rx12; ry12; rz12) / r12_abs = (%0.8f; %0.8f; %0.8f)\n", ex_ij, ey_ij, ez_ij);
 
-    fprintf(file, "U12 = %0.8f\n", U);
+    fprintf(file, "U12 = %0.8f\n", U_full);
     fprintf(file, "F12 = %0.8f\n", F);
     fprintf(file, "F1 = (Fx1; Fy1; Fz1) = (%0.8f; %0.8f; %0.8f)\n", Fx[0], Fy[0], Fz[0]);
 
@@ -178,11 +262,15 @@ void writeToFile(int step) {
 void algorithm_MD_problem() {
 
     // задаем начальные условия для частиц
-    start_cond_two_particles();
+    start_cond_four_particles();
 
     // считаем нулевой шаг
-    calculate_potential_U_F();
+    calculate_potential_U_F_P2();
 
+    // расчет макропараметров
+    macroparams();
+
+    writeMacroToFile(0);
     writeToFile(0);
 
     
@@ -195,10 +283,13 @@ void algorithm_MD_problem() {
         // ПГУ, смещение координат при необходимости
         PBC();
         
-        calculate_potential_U_F();
+        calculate_potential_U_F_P2();
 
         velocity_Verlet_half();
 
+        macroparams();
+
+        writeMacroToFile(step);
         writeToFile(step);
     }
 }
